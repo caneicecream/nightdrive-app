@@ -334,7 +334,11 @@
     lastNodeKey: null,
     pointTarget: null,
     overpassFailStreak: 0,
-    overpassCooldownUntilLeg: 0
+    overpassCooldownUntilLeg: 0,
+    lastAvgDensity: 0,
+    recentDensities: [],
+    escapePullBearing: null,
+    escapePullUntilLeg: 0
   };
 
   /* ---------------- map ---------------- */
@@ -509,32 +513,77 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     S.routeCoords = coords;
   }
 
-  // Queries real OpenStreetMap road data near a point via the Overpass API — this is what
-  // makes endless mode actually choose real turns at real intersections, instead of picking
-  // a distant point and letting OSRM optimize for the fastest (usually most arterial) route.
+  // Queries real OpenStreetMap road AND building data near a point via Overpass. Building
+  // density is the real signal for "is this actually a backroad or just a residential-tagged
+  // street inside a subdivision" — tag names alone can't tell the difference, density can.
   async function nearbyRoadCandidates(lat,lng, roadBias, avoidBias){
     const tagFilter = (roadBias&&roadBias.length ? roadBias : ['residential','unclassified','tertiary','living_street','service','track']).join('|');
-    const query = `[out:json][timeout:8];(way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];);out geom;`;
+    const query = `[out:json][timeout:10];way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;`;
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-    const res = await fetchWithTimeout(url, 6000);
+    const res = await fetchWithTimeout(url, 7000);
     if(!res.ok) throw new Error('overpass unavailable');
     const data = await res.json();
+
+    const buildings = (data.elements||[]).map(el=>{
+      if(el.tags===undefined || el.tags.building===undefined) return null;
+      if(el.type==='node') return {lat:el.lat, lng:el.lon};
+      if(el.center) return {lat:el.center.lat, lng:el.center.lon};
+      return null;
+    }).filter(Boolean);
+    const avgDensity = buildings.length; // building count within 650m — the local built-up-ness reading
+
     const candidates = [];
+    const hopMi = 0.10 + Math.random()*0.16; // short, bounded hop — a stretch to the next real turn, not a road's far end
     (data.elements||[]).forEach(way=>{
-      if(!way.geometry || way.geometry.length<2) return;
-      const tag = (way.tags && way.tags.highway) || '';
+      if(!way.geometry || way.geometry.length<2 || !way.tags || !way.tags.highway) return;
+      const tag = way.tags.highway;
       if(avoidBias && avoidBias.includes(tag)) return;
-      // candidate = the far endpoint of this way's geometry relative to our position
-      const first = way.geometry[0], last = way.geometry[way.geometry.length-1];
-      [first,last].forEach(pt=>{
+      const geom = way.geometry;
+
+      // find the point on this way closest to our current position
+      let nearestIdx = 0, nearestD = Infinity;
+      geom.forEach((pt,i)=>{
         const d = haversineMi({lat,lng},{lat:pt.lat,lng:pt.lon});
-        if(d > 0.02 && d < 0.35){
+        if(d < nearestD){ nearestD = d; nearestIdx = i; }
+      });
+
+      // walk a short, bounded distance in each direction along the road's actual geometry
+      // — this is what makes candidates real nearby turns instead of a faraway endpoint.
+      function walk(dir){
+        let idx = nearestIdx, accum = 0, prev = geom[nearestIdx];
+        while(true){
+          const next = geom[idx+dir];
+          if(!next) break;
+          accum += haversineMi({lat:prev.lat,lng:prev.lon},{lat:next.lat,lng:next.lon});
+          prev = next; idx += dir;
+          if(accum >= hopMi) break;
+        }
+        return idx===nearestIdx ? null : prev;
+      }
+      [walk(1), walk(-1)].forEach(pt=>{
+        if(!pt) return;
+        const d = haversineMi({lat,lng},{lat:pt.lat,lng:pt.lon});
+        if(d > 0.015){
           const bearing = (toDeg(Math.atan2(toRad(pt.lon-lng)*Math.cos(toRad(lat)), toRad(pt.lat-lat)))+360)%360;
-          candidates.push({lat:pt.lat, lng:pt.lon, bearing, tag, curvy: way.geometry.length > 4});
+          // real directional density: how many buildings sit in a cone toward this candidate —
+          // this is what lets the app actually tell "toward the subdivision" from "toward open road"
+          const dirDensity = buildings.filter(b=>{
+            const bd = haversineMi({lat,lng},{lat:b.lat,lng:b.lng});
+            if(bd > 0.34) return false;
+            const bBearing = (toDeg(Math.atan2(toRad(b.lng-lng)*Math.cos(toRad(lat)), toRad(b.lat-lat)))+360)%360;
+            return Math.abs(((bBearing-bearing+540)%360)-180) < 40;
+          }).length;
+          const surface = way.tags.surface || '';
+          candidates.push({
+            lat:pt.lat, lng:pt.lon, bearing, tag, curvy: geom.length > 5,
+            dirDensity,
+            unlit: way.tags.lit === 'no',
+            unpaved: /unpaved|gravel|dirt|ground|grass/.test(surface)
+          });
         }
       });
     });
-    return candidates;
+    return {candidates, avgDensity};
   }
 
   // Overpass's public server is free but occasionally slow or rate-limited — never let a
@@ -551,6 +600,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   function pickNextCandidate(candidates, profile, target){
     if(!candidates.length) return null;
     const curDistToTarget = target ? haversineMi(S.pos, target) : null;
+    const densityWeight = (profile && profile.secluded) ? 1.7 : 1.0;
     let scored = candidates.map(c=>{
       let score = Math.random()*10;
       if(S.lastBearing!==null){
@@ -559,6 +609,11 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
         if(diff > 60 && diff < 150) score += 3; // favor actual turns over going dead straight
       }
       if(profile && profile.curvy && c.curvy) score += 4;
+      // real signal, not just tag names: steer toward directions with fewer nearby buildings —
+      // this is what actually keeps the drive out of subdivisions and city grids
+      score -= (c.dirDensity||0) * 1.1 * densityWeight;
+      if(c.unlit) score += (profile && profile.secluded ? 3 : 1);
+      if(c.unpaved && profile && profile.secluded) score += 2;
       if(profile && profile.loop && S.startLatLng && S.legCount>0 && S.legCount % 5 === 0){
         const backBearing = (toDeg(Math.atan2(toRad(S.startLatLng.lng-c.lng)*Math.cos(toRad(c.lat)), toRad(S.startLatLng.lat-c.lat)))+360)%360;
         const diff = Math.abs(((c.bearing-backBearing+540)%360)-180);
@@ -567,6 +622,10 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       if(S.lorePullBearing!==null && S.legCount <= S.lorePullUntilLeg){
         const diff = Math.abs(((c.bearing-S.lorePullBearing+540)%360)-180);
         score += (180-diff)/15; // gently steer toward a nearby real point of interest
+      }
+      if(S.escapePullBearing!==null && S.legCount <= S.escapePullUntilLeg){
+        const diff = Math.abs(((c.bearing-S.escapePullBearing+540)%360)-180);
+        score += (180-diff)/6; // actively push out of a dense area we've been stuck in
       }
       if(target){
         // reward progress toward the destination, but only mildly — this is meant to
@@ -578,6 +637,42 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     });
     scored.sort((a,b)=>b.score-a.score);
     return scored[0].c;
+  }
+
+  // If recent legs have all sat in dense, built-up areas, do one wider scan (bucketed into
+  // compass sectors) to find the sparsest nearby direction, and pull hard toward it for a
+  // few legs — this is the actual mechanism for climbing out of a subdivision or city grid
+  // once the local density steering alone hasn't been enough.
+  const DENSITY_STUCK_THRESHOLD = 45;
+  async function maybeTriggerEscape(){
+    S.recentDensities.push(S.lastAvgDensity);
+    if(S.recentDensities.length > 3) S.recentDensities.shift();
+    if(S.recentDensities.length < 3) return;
+    const stuck = S.recentDensities.every(d=>d >= DENSITY_STUCK_THRESHOLD);
+    if(!stuck) return;
+    try{
+      const query = `[out:json][timeout:9];(node(around:1600,${S.pos.lat},${S.pos.lng})["building"];way(around:1600,${S.pos.lat},${S.pos.lng})["building"];);out center 700;`;
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+      const res = await fetchWithTimeout(url, 7000);
+      const data = await res.json();
+      const pts = (data.elements||[]).map(el=>{
+        if(!el.tags || el.tags.building===undefined) return null;
+        if(el.type==='node') return {lat:el.lat, lng:el.lon};
+        if(el.center) return {lat:el.center.lat, lng:el.center.lon};
+        return null;
+      }).filter(Boolean);
+      const sectors = new Array(8).fill(0);
+      pts.forEach(p=>{
+        const b = (toDeg(Math.atan2(toRad(p.lng-S.pos.lng)*Math.cos(toRad(S.pos.lat)), toRad(p.lat-S.pos.lat)))+360)%360;
+        sectors[Math.floor(b/45)]++;
+      });
+      let minIdx = 0;
+      for(let i=1;i<8;i++) if(sectors[i] < sectors[minIdx]) minIdx = i;
+      S.escapePullBearing = minIdx*45 + 22.5;
+      S.escapePullUntilLeg = S.legCount + 5;
+      S.recentDensities = [];
+      toast('Steering toward open road...', 'info');
+    }catch(e){ /* non-critical — local density steering still applies */ }
   }
 
   async function generateEndlessLeg(target){
@@ -602,8 +697,11 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     const overpassOnCooldown = S.legCount < S.overpassCooldownUntilLeg;
     if(!overpassOnCooldown){
       try{
-        candidates = await nearbyRoadCandidates(S.pos.lat, S.pos.lng, profile.roadBias, profile.avoidBias);
+        const result = await nearbyRoadCandidates(S.pos.lat, S.pos.lng, profile.roadBias, profile.avoidBias);
+        candidates = result.candidates;
+        S.lastAvgDensity = result.avgDensity;
         S.overpassFailStreak = 0;
+        if(!target) await maybeTriggerEscape(); // only wander-steer in endless mode, not while headed to a chosen point
       }catch(e){
         S.overpassFailStreak++;
         if(S.overpassFailStreak >= 2){
