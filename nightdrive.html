@@ -153,6 +153,11 @@
   #drive{display:none;}
   #drive.show{display:block;}
   #setup.hide{display:none;}
+  #simBadge{display:none; align-items:center; gap:6px; font-size:10.5px; letter-spacing:.08em; color:var(--amber);
+    background:rgba(255,180,84,.1); border:1px solid rgba(255,180,84,.3); border-radius:8px; padding:6px 10px;
+    margin-bottom:12px; cursor:pointer; font-weight:600;}
+  #simBadge.show{display:flex;}
+
   .instr{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
   .instr .icon{width:42px;height:42px; border-radius:var(--r-sm); background:var(--panel2); border:1px solid var(--line);
     display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--teal);
@@ -248,6 +253,10 @@
       <div><div class="t">Voice narration</div><div class="d">Spoken aloud so you don't look down</div></div>
       <div class="switch on" id="voiceSwitch"><div class="knob"></div></div>
     </div>
+    <div class="toggle-row">
+      <div><div class="t">Simulate drive</div><div class="d">Test the routing from your couch — no GPS movement needed</div></div>
+      <div class="switch" id="simSwitch"><div class="knob"></div></div>
+    </div>
 
     <div id="dial-wrap">
       <div id="dial"><div class="lbl">START</div></div>
@@ -257,6 +266,10 @@
 
   <!-- DRIVE (live) -->
   <div id="drive">
+    <div id="simBadge">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      SIMULATING <span id="simSpeedLabel">1×</span> — tap to change speed
+    </div>
     <div class="instr">
       <div class="icon" id="instrIcon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M3 12h3M18 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></div>
       <div class="txt">
@@ -338,7 +351,12 @@
     lastAvgDensity: 0,
     recentDensities: [],
     escapePullBearing: null,
-    escapePullUntilLeg: 0
+    escapePullUntilLeg: 0,
+    simulate: false,
+    simRouteRef: null,
+    simDistMi: 0,
+    simIntervalId: null,
+    simMultiplier: 1
   };
 
   /* ---------------- map ---------------- */
@@ -463,6 +481,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     });
   }
   function onPos(p){
+    if(S.simulate && S.driving) return; // ignore real GPS while a simulated drive is running
     updatePosition(p.coords.latitude, p.coords.longitude, p.coords.heading);
   }
   function updatePosition(lat,lng,heading){
@@ -755,6 +774,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       const dTarget = haversineMi(S.pos, S.pointTarget);
       if(dTarget < 0.03){
         S.driving=false;
+        stopSimulation();
         setInstruction('You\u2019ve arrived', 'Drive complete', 'arrived');
         toast('You reached your endpoint.', 'info');
         return;
@@ -964,8 +984,67 @@ ${factsText}`;
   document.getElementById('voiceSwitch').addEventListener('click', function(){
     S.voiceOn = !S.voiceOn; this.classList.toggle('on', S.voiceOn);
   });
+  document.getElementById('simSwitch').addEventListener('click', function(){
+    S.simulate = !S.simulate; this.classList.toggle('on', S.simulate);
+  });
 
   document.getElementById('dial').addEventListener('click', beginDrive);
+
+  /* ---------------- simulate drive (test without moving) ---------------- */
+  // Walks a fake position along whatever route is currently drawn, at a realistic pace.
+  // Deliberately funnels through the same updatePosition()/checkLegProgress() path real
+  // GPS uses, so leg generation, arrival detection, and lore triggers all behave identically
+  // to an actual drive — this isn't a separate mock, it's driving the real pipeline.
+  function pointAlongRoute(coords, distMi){
+    let remaining = distMi;
+    for(let i=0;i<coords.length-1;i++){
+      const a = {lat:coords[i][0], lng:coords[i][1]};
+      const b = {lat:coords[i+1][0], lng:coords[i+1][1]};
+      const segLen = haversineMi(a,b);
+      if(remaining <= segLen || i===coords.length-2){
+        const t = segLen>0 ? Math.min(1, remaining/segLen) : 1;
+        const lat = a.lat + (b.lat-a.lat)*t;
+        const lng = a.lng + (b.lng-a.lng)*t;
+        const bearing = (toDeg(Math.atan2(toRad(b.lng-a.lng)*Math.cos(toRad(a.lat)), toRad(b.lat-a.lat)))+360)%360;
+        return {lat, lng, bearing};
+      }
+      remaining -= segLen;
+    }
+    const last = coords[coords.length-1];
+    return {lat:last[0], lng:last[1], bearing:S.heading||0};
+  }
+
+  const SIM_TICK_MS = 450;
+  const SIM_BASE_MPH = 26;
+  function simTick(){
+    if(!S.driving || !S.routeCoords || S.routeCoords.length < 2) return;
+    if(S.routeCoords !== S.simRouteRef){ S.simRouteRef = S.routeCoords; S.simDistMi = 0; }
+    const miPerTick = (SIM_BASE_MPH * (S.simMultiplier||1) / 3600) * (SIM_TICK_MS/1000);
+    S.simDistMi += miPerTick;
+    const p = pointAlongRoute(S.routeCoords, S.simDistMi);
+    updatePosition(p.lat, p.lng, p.bearing);
+  }
+  function startSimulation(){
+    stopSimulation();
+    S.simRouteRef = null;
+    S.simDistMi = 0;
+    S.simIntervalId = setInterval(simTick, SIM_TICK_MS);
+    document.getElementById('simBadge').classList.add('show');
+    updateSimSpeedLabel();
+  }
+  function stopSimulation(){
+    if(S.simIntervalId){ clearInterval(S.simIntervalId); S.simIntervalId = null; }
+    document.getElementById('simBadge').classList.remove('show');
+  }
+  function updateSimSpeedLabel(){
+    document.getElementById('simSpeedLabel').textContent = S.simMultiplier + '×';
+  }
+  document.getElementById('simBadge').addEventListener('click', ()=>{
+    const steps = [1,3,6,10];
+    const idx = steps.indexOf(S.simMultiplier);
+    S.simMultiplier = steps[(idx+1) % steps.length];
+    updateSimSpeedLabel();
+  });
 
   /* ---------------- destination picker (address search or map tap) ---------------- */
   function openDestinationPicker(title, onChosen){
@@ -1037,13 +1116,20 @@ ${factsText}`;
     document.getElementById('btnEndpoint').style.display = S.mode==='endless' ? 'flex' : 'none';
     startTimer();
 
+    if(S.simulate && S.watchId!==null){
+      navigator.geolocation.clearWatch(S.watchId); // real GPS would otherwise fight the simulated position
+      S.watchId = null;
+    }
+
     if(S.pos){
       if(S.mode==='endless'){
         generateEndlessLeg();
+        if(S.simulate) startSimulation();
       } else {
         openDestinationPicker('Where does this drive end?', (latlng)=>{
           S.finishingToPoint = true;
           routeToPoint(latlng, 'Point to point');
+          if(S.simulate) startSimulation();
         });
       }
     } else {
@@ -1051,11 +1137,14 @@ ${factsText}`;
       const check = setInterval(()=>{
         if(S.pos){
           clearInterval(check);
-          if(S.mode==='endless') generateEndlessLeg();
-          else {
+          if(S.mode==='endless'){
+            generateEndlessLeg();
+            if(S.simulate) startSimulation();
+          } else {
             openDestinationPicker('Where does this drive end?', (latlng)=>{
               S.finishingToPoint = true;
               routeToPoint(latlng, 'Point to point');
+              if(S.simulate) startSimulation();
             });
           }
         }
@@ -1075,6 +1164,8 @@ ${factsText}`;
     S.driving = false;
     S.finishingToPoint = false;
     stopTimer();
+    stopSimulation();
+    if(S.simulate && S.watchId===null) startLocation(); // resume real GPS for next time
     if(routeLineGlow) map.removeLayer(routeLineGlow);
     if(routeLineCore) map.removeLayer(routeLineCore);
     if(endpointMarker) map.removeLayer(endpointMarker);
