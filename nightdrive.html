@@ -356,7 +356,8 @@
     simRouteRef: null,
     simDistMi: 0,
     simIntervalId: null,
-    simMultiplier: 1
+    simMultiplier: 1,
+    legGenerating: false
   };
 
   /* ---------------- map ---------------- */
@@ -695,6 +696,16 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   }
 
   async function generateEndlessLeg(target){
+    if(S.legGenerating) return; // prevent overlapping calls when a slow response outlasts a tick
+    S.legGenerating = true;
+    try{
+      await generateEndlessLegInner(target);
+    } finally {
+      S.legGenerating = false;
+    }
+  }
+
+  async function generateEndlessLegInner(target){
     setInstruction('Scouting the next turn...', target ? 'Heading to your endpoint' : 'Endless mode', 'scout');
     const profile = S.vibeProfile || fallbackVibeProfile();
 
