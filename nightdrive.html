@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NIGHTDRIVE</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070a10;
+    --panel:#0d121bf0;
+    --panel2:#11172380;
+    --amber:#ffb454;
+    --amber-dim:#8a6a3f;
+    --teal:#4fd8c9;
+    --violet:#a493f5;
+    --text:#eae7df;
+    --text-dim:#7d8494;
+    --danger:#ff6b6b;
+    --line:#232a38;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--text);
+    font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;}
+  .num, .display{font-family:'Rajdhani',sans-serif; font-weight:700; letter-spacing:.02em;}
+  #map{position:absolute; inset:0; background:#070a10;}
+  .leaflet-control-attribution{background:rgba(7,10,16,.7) !important; color:#5a6070 !important; font-size:9px !important;}
+  .leaflet-control-attribution a{color:#7d8494 !important;}
+  .leaflet-control-zoom{display:none;}
+
+  /* vignette to sell the night-dashboard feel */
+  #vignette{position:absolute; inset:0; pointer-events:none; z-index:410;
+    background:radial-gradient(ellipse at 50% 55%, transparent 40%, rgba(3,4,8,.55) 100%);}
+
+  /* top bar */
+  #topbar{position:absolute; top:0; left:0; right:0; z-index:500; padding:14px 16px 0;
+    display:flex; justify-content:space-between; align-items:flex-start; pointer-events:none;}
+  #brand{display:flex; align-items:center; gap:8px; pointer-events:auto;}
+  #brand .dot{width:7px;height:7px;border-radius:50%; background:var(--amber); box-shadow:0 0 8px var(--amber);}
+  #brand span{font-size:13px; letter-spacing:.22em; color:var(--text-dim); font-weight:600;}
+  #tripstats{display:none; gap:16px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:8px 14px; pointer-events:auto; backdrop-filter:blur(10px);}
+  #tripstats.show{display:flex;}
+  .stat{text-align:right;}
+  .stat .v{font-size:18px; line-height:1;}
+  .stat .l{font-size:9px; color:var(--text-dim); letter-spacing:.14em; margin-top:2px;}
+
+  /* status toast */
+  #toast{position:absolute; top:64px; left:16px; right:16px; z-index:600; text-align:center;
+    pointer-events:none;}
+  #toast .msg{display:inline-block; background:rgba(20,10,10,.85); border:1px solid #402626; color:#ffb1b1;
+    font-size:12.5px; padding:8px 14px; border-radius:10px; backdrop-filter:blur(8px); max-width:100%;}
+  #toast .msg.info{background:rgba(10,16,22,.85); border-color:#1e3540; color:#a9dce6;}
+
+  /* story log slide-up */
+  #storylog{position:absolute; left:0; right:0; bottom:0; z-index:550; max-height:44vh;
+    transform:translateY(100%); transition:transform .35s cubic-bezier(.2,.8,.2,1);
+    background:linear-gradient(180deg, rgba(13,18,27,.4), rgba(9,12,18,.97) 30%);
+    border-top:1px solid var(--line); backdrop-filter:blur(14px); padding:14px 16px 180px;
+    overflow-y:auto;}
+  #storylog.open{transform:translateY(0);}
+  #storylog h4{margin:0 0 10px; font-size:11px; letter-spacing:.16em; color:var(--violet); font-weight:600;}
+  .entry{border-left:2px solid var(--violet); padding:2px 0 12px 12px; margin-bottom:10px;}
+  .entry .loc{font-size:11px; color:var(--text-dim); margin-bottom:3px; letter-spacing:.03em;}
+  .entry p{margin:0; font-size:14.5px; line-height:1.5; color:#ded9f2;}
+  .entry .src{margin-top:5px; font-size:10px; color:#5a5f70;}
+
+  /* bottom console */
+  #console{position:absolute; left:0; right:0; bottom:0; z-index:520;
+    background:var(--panel); border-top:1px solid var(--line); backdrop-filter:blur(16px);
+    border-radius:20px 20px 0 0; padding:14px 18px calc(18px + env(safe-area-inset-bottom));
+    transition:transform .3s ease;}
+  #handle{width:36px; height:4px; background:#2b3242; border-radius:3px; margin:0 auto 12px;}
+
+  /* SETUP VIEW */
+  #setup .row-label{font-size:10.5px; letter-spacing:.14em; color:var(--text-dim); margin:14px 0 8px; font-weight:600;}
+  #setup .row-label:first-child{margin-top:0;}
+  .segmented{display:flex; background:var(--panel2); border-radius:12px; padding:3px; border:1px solid var(--line);}
+  .segmented button{flex:1; background:transparent; border:none; color:var(--text-dim); font-family:'Inter';
+    font-size:13px; font-weight:600; padding:10px 6px; border-radius:9px; transition:all .2s;}
+  .segmented button.active{background:var(--amber); color:#1a1206;}
+  #vibeInput{width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    color:var(--text); font-family:'Inter'; font-size:14.5px; padding:12px 14px; resize:none; height:52px;}
+  #vibeInput::placeholder{color:#565c6c;}
+  .toggle-row{display:flex; align-items:center; justify-content:space-between; padding:10px 2px;}
+  .toggle-row .t{font-size:14px;}
+  .toggle-row .d{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+  .switch{width:44px; height:26px; border-radius:14px; background:#232938; border:1px solid var(--line);
+    position:relative; flex-shrink:0;}
+  .switch.on{background:var(--teal);}
+  .switch .knob{position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+    background:#fff; transition:left .2s ease;}
+  .switch.on .knob{left:20px;}
+
+  #dial-wrap{display:flex; justify-content:center; margin:20px 0 6px;}
+  #dial{width:118px; height:118px; border-radius:50%; position:relative; cursor:pointer;
+    background: conic-gradient(from -120deg, var(--amber-dim) 0deg, var(--amber) 300deg, transparent 300deg);
+    padding:6px; display:flex; align-items:center; justify-content:center;}
+  #dial::after{content:''; position:absolute; inset:6px; border-radius:50%; background:#0c0f16;
+    box-shadow: inset 0 0 18px rgba(0,0,0,.7);}
+  #dial .lbl{position:relative; z-index:2; font-size:13px; letter-spacing:.1em; color:var(--amber); font-weight:700;}
+  #dial:active{transform:scale(.97);}
+
+  /* DRIVE VIEW */
+  #drive{display:none;}
+  #drive.show{display:block;}
+  #setup.hide{display:none;}
+  .instr{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
+  .instr .icon{width:40px;height:40px; border-radius:10px; background:var(--panel2); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;}
+  .instr .txt .main{font-size:15px; font-weight:600;}
+  .instr .txt .sub{font-size:11.5px; color:var(--text-dim); margin-top:1px;}
+  .btnrow{display:flex; gap:10px; margin-top:6px;}
+  .btn{flex:1; padding:13px 8px; border-radius:12px; border:1px solid var(--line); background:var(--panel2);
+    color:var(--text); font-family:'Inter'; font-size:13px; font-weight:600; display:flex; align-items:center;
+    justify-content:center; gap:6px;}
+  .btn.primary{background:var(--teal); color:#04211d; border-color:var(--teal);}
+  .btn.ghost-violet{border-color:#3a3260; color:var(--violet);}
+  .btn.danger{border-color:#3a2222; color:var(--danger);}
+  .btn:active{transform:scale(.97);}
+
+  #musicSheet{position:absolute; inset:0; z-index:700; background:rgba(4,5,9,.7); backdrop-filter:blur(6px);
+    display:none; align-items:flex-end;}
+  #musicSheet.open{display:flex;}
+  #musicCard{width:100%; background:var(--panel); border-top:1px solid var(--line); border-radius:20px 20px 0 0;
+    padding:20px 20px calc(24px + env(safe-area-inset-bottom));}
+  #musicCard h3{margin:0 0 4px; font-size:16px;}
+  #musicCard p{margin:0 0 16px; font-size:12.5px; color:var(--text-dim); line-height:1.5;}
+  .mchip{display:inline-block; padding:9px 14px; margin:0 8px 8px 0; border-radius:20px; background:var(--panel2);
+    border:1px solid var(--line); font-size:13px;}
+  .mchip.on{background:var(--amber); color:#1a1206; border-color:var(--amber);}
+
+  ::-webkit-scrollbar{display:none;}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="vignette"></div>
+
+<div id="topbar">
+  <div id="brand"><div class="dot"></div><span>NIGHTDRIVE</span></div>
+  <div id="tripstats">
+    <div class="stat"><div class="v num" id="statDist">0.0</div><div class="l">MILES</div></div>
+    <div class="stat"><div class="v num" id="statTime">00:00</div><div class="l">ELAPSED</div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="storylog">
+  <h4>◈ STORY LOG — grounded in real nearby places</h4>
+  <div id="storyEntries"></div>
+</div>
+
+<div id="console">
+  <div id="handle"></div>
+
+  <!-- SETUP -->
+  <div id="setup">
+    <div class="row-label">DRIVE TYPE</div>
+    <div class="segmented" id="modeSeg">
+      <button class="active" data-mode="endless">Endless</button>
+      <button data-mode="pointToPoint">Start → End</button>
+    </div>
+
+    <div class="row-label">DESCRIBE THE DRIVE</div>
+    <textarea id="vibeInput" placeholder="e.g. slow moody backroads, no highways, coastal, something with hills..."></textarea>
+
+    <div class="toggle-row" id="storyToggleRow">
+      <div><div class="t">Story mode</div><div class="d">Real local history, narrated as you drive</div></div>
+      <div class="switch on" id="storySwitch"><div class="knob"></div></div>
+    </div>
+    <div class="toggle-row">
+      <div><div class="t">Voice narration</div><div class="d">Spoken aloud so you don't look down</div></div>
+      <div class="switch on" id="voiceSwitch"><div class="knob"></div></div>
+    </div>
+
+    <div id="dial-wrap">
+      <div id="dial"><div class="lbl">START</div></div>
+    </div>
+  </div>
+
+  <!-- DRIVE (live) -->
+  <div id="drive">
+    <div class="instr">
+      <div class="icon" id="instrIcon">↻</div>
+      <div class="txt">
+        <div class="main" id="instrMain">Finding the first road...</div>
+        <div class="sub" id="instrSub">Endless mode</div>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button class="btn ghost-violet" id="btnLore">◈ Log</button>
+      <button class="btn" id="btnMusic">♫ Music</button>
+      <button class="btn primary" id="btnEndpoint">Set endpoint</button>
+    </div>
+    <div class="btnrow">
+      <button class="btn danger" id="btnEnd">End drive</button>
+    </div>
+  </div>
+</div>
+
+<div id="musicSheet">
+  <div id="musicCard">
+    <h3>Hand off to Apple Music</h3>
+    <p>iOS doesn't let a web page control Music playback directly — this opens the Music app with a search built from your drive's vibe. It'll keep playing in the background while NIGHTDRIVE stays on screen.</p>
+    <div id="mchips"></div>
+    <div class="btnrow" style="margin-top:10px;">
+      <button class="btn primary" id="btnOpenMusic">Open Apple Music</button>
+      <button class="btn" id="btnCloseMusic">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- state ---------------- */
+  const S = {
+    mode: 'endless',
+    vibe: '',
+    storyOn: true,
+    voiceOn: true,
+    pos: null,           // {lat,lng}
+    heading: null,
+    watchId: null,
+    driving: false,
+    settingEndpoint: false,
+    finishingToPoint: false,
+    tripStartTime: null,
+    tripDistanceMi: 0,
+    lastPos: null,
+    lastLoreLat: null,
+    lastLoreLng: null,
+    loreBusy: false,
+    routeCoords: [],      // [[lat,lng],...] current leg
+    legCount: 0,
+    lastBearing: null,
+    startLatLng: null
+  };
+
+  /* ---------------- map ---------------- */
+  const map = L.map('map', {zoomControl:false, attributionControl:true}).setView([37.98,-84.47], 13); // Lexington KY default
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution:'&copy; OpenStreetMap, &copy; CARTO',
+    maxZoom:20, subdomains:'abcd'
+  }).addTo(map);
+
+  const meIcon = L.divIcon({
+    className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#4fd8c9;box-shadow:0 0 0 4px rgba(79,216,201,.25),0 0 14px #4fd8c9;"></div>',
+    iconSize:[16,16], iconAnchor:[8,8]
+  });
+  let meMarker = null;
+  let routeLineGlow = null, routeLineCore = null;
+  let endpointMarker = null;
+
+  function toast(msg, type){
+    const el = document.getElementById('toast');
+    el.innerHTML = `<div class="msg ${type||''}">${msg}</div>`;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>{ el.innerHTML=''; }, 5200);
+  }
+
+  /* ---------------- geo helpers ---------------- */
+  function toRad(d){return d*Math.PI/180;}
+  function toDeg(r){return r*180/Math.PI;}
+  function haversineMi(a,b){
+    const R=3958.8;
+    const dLat=toRad(b.lat-a.lat), dLng=toRad(b.lng-a.lng);
+    const s=Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+    return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
+  }
+  function projectPoint(lat,lng,bearingDeg,distMi){
+    const R=3958.8, br=toRad(bearingDeg), d=distMi/R;
+    const lat1=toRad(lat), lng1=toRad(lng);
+    const lat2=Math.asin(Math.sin(lat1)*Math.cos(d)+Math.cos(lat1)*Math.sin(d)*Math.cos(br));
+    const lng2=lng1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(lat1), Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));
+    return {lat:toDeg(lat2), lng:((toDeg(lng2)+540)%360)-180};
+  }
+
+  function parseVibeBias(){
+    const v = S.vibe.toLowerCase();
+    let legMinMi=1.0, legMaxMi=2.4;
+    if(/short|quick|small/.test(v)){legMinMi=0.5; legMaxMi=1.1;}
+    if(/long|far|endless|deep/.test(v)){legMinMi=1.8; legMaxMi=3.5;}
+    return {legMinMi, legMaxMi, loop:/loop|circle|back|return/.test(v)};
+  }
+
+  /* ---------------- location ---------------- */
+  function startLocation(){
+    if(!navigator.geolocation){
+      toast('Geolocation isn\u2019t available in this browser context. Host this file on your own server to use live GPS.', '');
+      return;
+    }
+    S.watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {
+      enableHighAccuracy:true, maximumAge:2000, timeout:12000
+    });
+  }
+  function onPosErr(err){
+    toast('Location blocked or unavailable (' + err.message + '). Tap the map to drop a manual pin and continue testing routes.', '');
+    enableManualPin();
+  }
+  function enableManualPin(){
+    map.once('click', (e)=>{
+      updatePosition(e.latlng.lat, e.latlng.lng, null);
+      toast('Manual position set. Live GPS will resume automatically if permission is granted.', 'info');
+    });
+  }
+  function onPos(p){
+    updatePosition(p.coords.latitude, p.coords.longitude, p.coords.heading);
+  }
+  function updatePosition(lat,lng,heading){
+    const newPos = {lat,lng};
+    if(S.pos && S.driving){
+      const d = haversineMi(S.pos, newPos);
+      if(d < 2){ S.tripDistanceMi += d; } // ignore GPS jumps
+      document.getElementById('statDist').textContent = S.tripDistanceMi.toFixed(1);
+    }
+    S.pos = newPos;
+    if(heading!==null && heading!==undefined && !isNaN(heading)) S.heading = heading;
+
+    if(!meMarker){
+      meMarker = L.marker([lat,lng], {icon:meIcon}).addTo(map);
+      map.setView([lat,lng], 16);
+      if(!S.startLatLng) S.startLatLng = newPos;
+    } else {
+      meMarker.setLatLng([lat,lng]);
+      if(S.driving) map.panTo([lat,lng], {animate:true, duration:.6});
+    }
+
+    if(S.driving) checkLegProgress();
+    if(S.driving && S.storyOn) maybeFetchLore();
+  }
+
+  /* ---------------- OSRM routing ---------------- */
+  async function osrmRoute(from, to){
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('routing service unavailable');
+    const data = await res.json();
+    if(!data.routes || !data.routes.length) throw new Error('no route found');
+    const coords = data.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    return {coords, distMeters:data.routes[0].distance, durSec:data.routes[0].duration};
+  }
+
+  function drawRoute(coords, color){
+    if(routeLineGlow) map.removeLayer(routeLineGlow);
+    if(routeLineCore) map.removeLayer(routeLineCore);
+    routeLineGlow = L.polyline(coords, {color, weight:11, opacity:.18, lineCap:'round'}).addTo(map);
+    routeLineCore = L.polyline(coords, {color, weight:3.5, opacity:.95, lineCap:'round'}).addTo(map);
+    S.routeCoords = coords;
+  }
+
+  async function generateEndlessLeg(){
+    setInstruction('Scouting the next stretch...', S.mode==='endless' ? 'Endless mode' : 'Heading to your endpoint', '↻');
+    const bias = parseVibeBias();
+    let bearing;
+    if(bias.loop && S.legCount>0 && S.legCount % 4 === 0 && S.startLatLng){
+      // bias back toward start every 4 legs
+      const dLat=S.startLatLng.lat-S.pos.lat, dLng=S.startLatLng.lng-S.pos.lng;
+      bearing = (toDeg(Math.atan2(dLng,dLat))+360)%360 + (Math.random()*40-20);
+    } else {
+      bearing = Math.random()*360;
+      if(S.lastBearing!==null){
+        // avoid doubling straight back (u-turn) — nudge away from opposite of last bearing
+        const opp=(S.lastBearing+180)%360;
+        while(Math.abs(((bearing-opp+540)%360)-180) < 35){ bearing = Math.random()*360; }
+      }
+    }
+    S.lastBearing = bearing;
+    const distMi = bias.legMinMi + Math.random()*(bias.legMaxMi-bias.legMinMi);
+    const target = projectPoint(S.pos.lat, S.pos.lng, bearing, distMi);
+    try{
+      const {coords} = await osrmRoute(S.pos, target);
+      drawRoute(coords, '#4fd8c9');
+      S.legCount++;
+      setInstruction('Follow the glowing road', `Leg ${S.legCount} · roughly ${distMi.toFixed(1)} mi`, '↻');
+    }catch(e){
+      toast('Routing hiccup — trying a different direction.', '');
+      setTimeout(generateEndlessLeg, 1200);
+    }
+  }
+
+  async function routeToPoint(target, label){
+    setInstruction('Charting a route...', label||'Point to point', '⚑');
+    try{
+      const {coords} = await osrmRoute(S.pos, target);
+      drawRoute(coords, '#ffb454');
+      setInstruction('Follow the glowing road', label||'Point to point', '⚑');
+      if(endpointMarker) map.removeLayer(endpointMarker);
+      endpointMarker = L.marker([target.lat,target.lng]).addTo(map);
+    }catch(e){
+      toast('Couldn\u2019t find a route to that point. Try tapping somewhere else.', '');
+    }
+  }
+
+  function checkLegProgress(){
+    if(!S.routeCoords.length) return;
+    const end = S.routeCoords[S.routeCoords.length-1];
+    const d = haversineMi(S.pos, {lat:end[0], lng:end[1]});
+    if(d < 0.03){ // ~50m — reached leg end
+      if(S.finishingToPoint){
+        S.driving=false;
+        setInstruction('You\u2019ve arrived', 'Drive complete', '●');
+        toast('You reached your endpoint.', 'info');
+        return;
+      }
+      generateEndlessLeg();
+    }
+  }
+
+  /* ---------------- UI: instruction card ---------------- */
+  function setInstruction(main,sub,icon){
+    document.getElementById('instrMain').textContent = main;
+    document.getElementById('instrSub').textContent = sub;
+    document.getElementById('instrIcon').textContent = icon||'↻';
+  }
+
+  /* ---------------- lore / story mode ---------------- */
+  async function maybeFetchLore(){
+    if(S.loreBusy || !S.pos) return;
+    if(S.lastLoreLat!==null){
+      const d = haversineMi(S.pos, {lat:S.lastLoreLat, lng:S.lastLoreLng});
+      if(d < 0.4) return; // throttle: only every ~0.4mi
+    }
+    S.loreBusy = true;
+    S.lastLoreLat = S.pos.lat; S.lastLoreLng = S.pos.lng;
+    try{
+      const geoUrl = `https://en.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${S.pos.lat}%7C${S.pos.lng}&gsradius=3000&gslimit=3&format=json&origin=*`;
+      const geoRes = await fetch(geoUrl);
+      const geoData = await geoRes.json();
+      const results = (geoData.query && geoData.query.geosearch) || [];
+      if(!results.length){ S.loreBusy=false; return; }
+      const pageids = results.map(r=>r.pageid).join('|');
+      const exUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&pageids=${pageids}&format=json&origin=*`;
+      const exRes = await fetch(exUrl);
+      const exData = await exRes.json();
+      const pages = exData.query ? Object.values(exData.query.pages) : [];
+      const facts = pages.filter(p=>p.extract).map(p=>({title:p.title, extract:p.extract.slice(0,600)}));
+      if(!facts.length){ S.loreBusy=false; return; }
+      await narrateFacts(facts);
+    }catch(e){
+      // fail silently for lore — don't interrupt the drive
+    }
+    S.loreBusy = false;
+  }
+
+  async function narrateFacts(facts){
+    const factsText = facts.map(f=>`${f.title}: ${f.extract}`).join('\n\n');
+    const vibeLine = S.vibe ? `The driver described the mood they want as: "${S.vibe}".` : '';
+    const prompt = `You are narrating a real-time night driving story for someone actually driving right now, using only the real facts below (from Wikipedia articles about places near their current GPS position). ${vibeLine}
+Write 2-3 sentences, second person ("you"), cinematic and atmospheric but grounded strictly in the real facts given — do not invent history that isn't in the source text. Mention the place name naturally. Keep it tight enough to be spoken aloud in under 15 seconds.
+
+FACTS:
+${factsText}`;
+    try{
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:250,
+          messages:[{role:"user", content: prompt}]
+        })
+      });
+      const data = await response.json();
+      const textBlock = (data.content||[]).find(b=>b.type==='text');
+      const text = textBlock ? textBlock.text.trim() : null;
+      if(text){
+        addStoryEntry(facts[0].title, text);
+        if(S.voiceOn) speak(text);
+      }
+    }catch(e){
+      // silent fail, drive continues
+    }
+  }
+
+  function addStoryEntry(loc, text){
+    const wrap = document.getElementById('storyEntries');
+    const el = document.createElement('div');
+    el.className='entry';
+    el.innerHTML = `<div class="loc">near ${loc.toUpperCase()}</div><p>${text}</p><div class="src">grounded in Wikipedia geodata</div>`;
+    wrap.prepend(el);
+  }
+
+  function speak(text){
+    if(!('speechSynthesis' in window)) return;
+    try{
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.95; u.pitch = 0.9; u.volume = 1;
+      window.speechSynthesis.speak(u);
+    }catch(e){}
+  }
+
+  /* ---------------- timer ---------------- */
+  let timerInt=null;
+  function startTimer(){
+    S.tripStartTime = Date.now();
+    timerInt = setInterval(()=>{
+      const s = Math.floor((Date.now()-S.tripStartTime)/1000);
+      const m = String(Math.floor(s/60)).padStart(2,'0');
+      const sec = String(s%60).padStart(2,'0');
+      document.getElementById('statTime').textContent = `${m}:${sec}`;
+    }, 1000);
+  }
+  function stopTimer(){ clearInterval(timerInt); }
+
+  /* ---------------- UI wiring ---------------- */
+  document.querySelectorAll('#modeSeg button').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');
+      S.mode = b.dataset.mode;
+    });
+  });
+  document.getElementById('vibeInput').addEventListener('input', (e)=>{ S.vibe = e.target.value; });
+  document.getElementById('storySwitch').addEventListener('click', function(){
+    S.storyOn = !S.storyOn; this.classList.toggle('on', S.storyOn);
+  });
+  document.getElementById('voiceSwitch').addEventListener('click', function(){
+    S.voiceOn = !S.voiceOn; this.classList.toggle('on', S.voiceOn);
+  });
+
+  document.getElementById('dial').addEventListener('click', beginDrive);
+
+  function beginDrive(){
+    if(!S.pos){
+      toast('Waiting on a location fix — tap the map to drop a manual pin if GPS doesn\u2019t respond.', '');
+      enableManualPin();
+    }
+    S.driving = true;
+    S.tripDistanceMi = 0;
+    S.legCount = 0;
+    document.getElementById('setup').classList.add('hide');
+    document.getElementById('drive').classList.add('show');
+    document.getElementById('tripstats').classList.add('show');
+    document.getElementById('btnEndpoint').style.display = S.mode==='endless' ? 'flex' : 'none';
+    startTimer();
+
+    if(S.pos){
+      if(S.mode==='endless'){
+        generateEndlessLeg();
+      } else {
+        toast('Tap anywhere on the map to set your destination.', 'info');
+        map.once('click', (e)=>{
+          routeToPoint({lat:e.latlng.lat, lng:e.latlng.lng}, 'Point to point');
+          S.finishingToPoint = true;
+        });
+      }
+    } else {
+      // wait for manual pin then start endless
+      const check = setInterval(()=>{
+        if(S.pos){
+          clearInterval(check);
+          if(S.mode==='endless') generateEndlessLeg();
+          else {
+            toast('Tap the map again to set your destination.', 'info');
+            map.once('click', (e)=>{
+              routeToPoint({lat:e.latlng.lat, lng:e.latlng.lng}, 'Point to point');
+              S.finishingToPoint = true;
+            });
+          }
+        }
+      }, 400);
+    }
+  }
+
+  document.getElementById('btnEndpoint').addEventListener('click', ()=>{
+    toast('Tap the map to set an endpoint — you\u2019ll be routed straight there.', 'info');
+    map.once('click', (e)=>{
+      const target = {lat:e.latlng.lat, lng:e.latlng.lng};
+      S.finishingToPoint = true;
+      routeToPoint(target, 'Finishing at your endpoint');
+      document.getElementById('btnEndpoint').style.display = 'none';
+    });
+  });
+
+  document.getElementById('btnEnd').addEventListener('click', ()=>{
+    S.driving = false;
+    S.finishingToPoint = false;
+    stopTimer();
+    if(routeLineGlow) map.removeLayer(routeLineGlow);
+    if(routeLineCore) map.removeLayer(routeLineCore);
+    if(endpointMarker) map.removeLayer(endpointMarker);
+    window.speechSynthesis && window.speechSynthesis.cancel();
+    document.getElementById('drive').classList.remove('show');
+    document.getElementById('setup').classList.remove('hide');
+    document.getElementById('tripstats').classList.remove('show');
+    toast(`Trip complete — ${S.tripDistanceMi.toFixed(1)} mi.`, 'info');
+  });
+
+  document.getElementById('btnLore').addEventListener('click', ()=>{
+    document.getElementById('storylog').classList.toggle('open');
+  });
+
+  document.getElementById('btnMusic').addEventListener('click', ()=>{
+    document.getElementById('musicSheet').classList.add('open');
+    buildMusicChips();
+  });
+  document.getElementById('btnCloseMusic').addEventListener('click', ()=>{
+    document.getElementById('musicSheet').classList.remove('open');
+  });
+  let chosenMood = null;
+  function buildMusicChips(){
+    const moods = ['Late night drive','Lo-fi & hazy','Synthwave','Slow R&B','Ambient / no vocals','Match my vibe'];
+    const wrap = document.getElementById('mchips');
+    wrap.innerHTML='';
+    moods.forEach(m=>{
+      const c = document.createElement('span');
+      c.className='mchip' + (m===chosenMood?' on':'');
+      c.textContent = m;
+      c.addEventListener('click', ()=>{ chosenMood=m; buildMusicChips(); });
+      wrap.appendChild(c);
+    });
+  }
+  document.getElementById('btnOpenMusic').addEventListener('click', ()=>{
+    let term = chosenMood === 'Match my vibe' ? (S.vibe || 'night drive') : (chosenMood || 'late night drive');
+    const url = `https://music.apple.com/search?term=${encodeURIComponent(term)}`;
+    window.open(url, '_blank');
+  });
+
+  /* ---------------- boot ---------------- */
+  startLocation();
+
+})();
+</script>
+</body>
+</html>
