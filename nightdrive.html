@@ -87,7 +87,7 @@
     overflow-y:auto;}
   #storylog.open{transform:translateY(0);}
   #storylog h4{margin:0 0 10px; font-size:11px; letter-spacing:.16em; color:var(--violet); font-weight:600;}
-  .entry{border-left:2px solid var(--violet); padding:2px 0 12px 12px; margin-bottom:10px;}
+  .entry{border-left:2px solid var(--violet); padding:2px 0 12px 12px; margin-bottom:10px; animation:introFade .4s cubic-bezier(.2,.8,.2,1) both;}
   .entry .loc{font-size:11px; color:var(--text-dim); margin-bottom:3px; letter-spacing:.03em;}
   .entry p{margin:0; font-size:14.5px; line-height:1.5; color:#ded9f2;}
   .entry .src{margin-top:5px; font-size:10px; color:#5a5f70;}
@@ -125,6 +125,7 @@
   .saved-chip{flex-shrink:0; display:flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line);
     border-radius:var(--r-md); padding:9px 10px 9px 13px; cursor:pointer; transition:border-color .2s;}
   .saved-chip:active{transform:scale(.97);}
+  .saved-chip .mode-icon{color:var(--amber); display:flex; flex-shrink:0;}
   .saved-chip .name{font-size:12.5px; font-weight:600; white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;}
   .saved-chip .del{width:20px;height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center;
     color:var(--text-dim); flex-shrink:0;}
@@ -158,26 +159,29 @@
     margin-bottom:12px; cursor:pointer; font-weight:600;}
   #simBadge.show{display:flex;}
 
-  #choicePanel{display:none; margin-bottom:14px;}
+  #choicePanel{display:none; margin-bottom:14px; animation:introFade .35s cubic-bezier(.2,.8,.2,1) both;}
   #choicePanel.show{display:block;}
-  #choiceTimerTrack{height:3px; background:var(--line); border-radius:2px; margin-bottom:9px; overflow:hidden;}
-  #choiceTimerBar{height:100%; width:100%; background:var(--teal); transform-origin:left; transition:none;}
+  #choiceTimerTrack{height:3px; background:var(--line); border-radius:2px; margin-bottom:10px; overflow:hidden;}
+  #choiceTimerBar{height:100%; width:100%; background:linear-gradient(90deg, var(--teal), var(--amber)); transform-origin:left; transition:none;}
   #choiceTimerBar.run{animation:choiceCountdown linear forwards;}
   @keyframes choiceCountdown{ from{transform:scaleX(1);} to{transform:scaleX(0);} }
   #choiceButtons{display:flex; gap:9px;}
   .choice-btn{flex:1; background:var(--panel2); border:1.5px solid var(--line); border-radius:var(--r-md);
-    padding:12px 10px; display:flex; flex-direction:column; align-items:center; gap:3px;
-    transition:border-color .2s, transform .15s;}
+    padding:14px 10px 12px; display:flex; flex-direction:column; align-items:center; gap:5px;
+    transition:border-color .2s, transform .15s, box-shadow .2s;}
   .choice-btn:active{transform:scale(.96);}
-  .choice-btn .ct-turn{font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--teal); letter-spacing:.04em;}
-  .choice-btn .ct-desc{font-size:11px; color:var(--text-dim); text-align:center; line-height:1.3;}
-  .choice-btn.chosen{border-color:var(--teal); box-shadow:0 0 14px var(--teal-glow);}
+  .choice-btn .ct-icon{color:var(--teal); opacity:.9;}
+  .choice-btn .ct-turn{font-family:'Rajdhani',sans-serif; font-weight:700; font-size:14px; color:var(--text); letter-spacing:.04em;}
+  .choice-btn .ct-desc{font-size:10.5px; color:var(--text-dim); text-align:center; line-height:1.3;}
+  .choice-btn.chosen{border-color:var(--teal); box-shadow:0 0 16px var(--teal-glow);}
+  .choice-btn.chosen .ct-icon, .choice-btn.chosen .ct-turn{color:var(--teal);}
 
   .instr{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
   .instr .icon{width:42px;height:42px; border-radius:var(--r-sm); background:var(--panel2); border:1px solid var(--line);
     display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--teal);
     box-shadow:0 0 0 0 transparent; transition:box-shadow .3s, color .3s;}
-  .instr .icon.arrived{color:var(--amber); box-shadow:0 0 16px var(--amber-glow);}
+  .instr .icon.arrived{color:var(--amber); box-shadow:0 0 16px var(--amber-glow); animation:arrivedPulse .9s ease-out;}
+  @keyframes arrivedPulse{ 0%{transform:scale(1);} 30%{transform:scale(1.18);} 100%{transform:scale(1);} }
   .instr .txt .main{font-size:15px; font-weight:600;}
   .instr .txt .sub{font-size:11.5px; color:var(--text-dim); margin-top:1px;}
   .btnrow{display:flex; gap:10px; margin-top:6px;}
@@ -288,8 +292,8 @@
     <div id="choicePanel">
       <div id="choiceTimerTrack"><div id="choiceTimerBar"></div></div>
       <div id="choiceButtons">
-        <button class="choice-btn" id="choiceA"><span class="ct-turn"></span><span class="ct-desc"></span></button>
-        <button class="choice-btn" id="choiceB"><span class="ct-turn"></span><span class="ct-desc"></span></button>
+        <button class="choice-btn" id="choiceA"><span class="ct-icon"></span><span class="ct-turn"></span><span class="ct-desc"></span></button>
+        <button class="choice-btn" id="choiceB"><span class="ct-icon"></span><span class="ct-turn"></span><span class="ct-desc"></span></button>
       </div>
     </div>
     <div class="instr">
@@ -312,7 +316,7 @@
 
 <div id="destSheet">
   <div id="destCard">
-    <h3 id="destTitle">Where to?</h3>
+    <h3><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;color:var(--amber);"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg><span id="destTitle">Where to?</span></h3>
     <p id="destSub">Type an address or place name, or just tap anywhere on the map.</p>
     <div id="destSearchRow">
       <input id="destInput" type="text" placeholder="e.g. Keeneland, or 123 Main St" autocomplete="off">
@@ -386,7 +390,8 @@
     pendingChoices: null,
     choicesFetching: false,
     choiceTimerId: null,
-    choicePreviewLines: []
+    choicePreviewLines: [],
+    userPickedChoice: null
   };
 
   /* ---------------- map ---------------- */
@@ -568,9 +573,19 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   // density is the real signal for "is this actually a backroad or just a residential-tagged
   // street inside a subdivision" — tag names alone can't tell the difference, density can.
   const HARD_AVOID_TAGS = ['motorway','motorway_link','trunk','trunk_link','primary','primary_link'];
-  async function nearbyRoadCandidates(lat,lng, roadBias, avoidBias){
+  async function fetchCandidatesWidened(lat, lng, profile){
+    let result = await nearbyRoadCandidates(lat, lng, profile.roadBias, profile.avoidBias, 220);
+    if(!result.candidates.length){
+      // sparse immediate area — widen the search before resorting to the tag-blind fallback,
+      // which is what was routing people onto arterial roads for lack of a nearby alternative
+      result = await nearbyRoadCandidates(lat, lng, profile.roadBias, profile.avoidBias, 420);
+    }
+    return result;
+  }
+  async function nearbyRoadCandidates(lat,lng, roadBias, avoidBias, radius){
+    radius = radius || 220;
     const tagFilter = (roadBias&&roadBias.length ? roadBias : ['residential','unclassified','tertiary','living_street','service','track']).join('|');
-    const query = `[out:json][timeout:12];way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;(way(around:850,${lat},${lng})["landuse"~"^(commercial|retail|industrial)$"];way(around:850,${lat},${lng})["amenity"="parking"];);out center 250;(way(around:850,${lat},${lng})["landuse"="forest"];way(around:850,${lat},${lng})["natural"~"^(wood|scrub)$"];);out center 250;`;
+    const query = `[out:json][timeout:12];way(around:${radius},${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;(way(around:850,${lat},${lng})["landuse"~"^(commercial|retail|industrial)$"];way(around:850,${lat},${lng})["amenity"="parking"];);out center 250;(way(around:850,${lat},${lng})["landuse"="forest"];way(around:850,${lat},${lng})["natural"~"^(wood|scrub)$"];);out center 250;`;
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
     const res = await fetchWithTimeout(url, 8500);
     if(!res.ok) throw new Error('overpass unavailable');
@@ -785,6 +800,12 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     }catch(e){ /* non-critical — local density steering still applies */ }
   }
 
+  const TURN_ICONS = {
+    'Left': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 18v-6a4 4 0 0 0-4-4H4"/><path d="M8 12 4 8l4-4"/></svg>',
+    'Right': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18v-6a4 4 0 0 1 4-4h12"/><path d="M16 12l4-4-4-4"/></svg>',
+    'Straight': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V4"/><path d="M7 9l5-5 5 5"/></svg>',
+    'Turn around': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2v6h-6"/><path d="M21 13a9 9 0 1 1-3-6.7L17 8"/></svg>'
+  };
   function turnLabel(c){
     if(S.lastBearing===null) return 'Ahead';
     const diff = ((c.bearing - S.lastBearing + 540) % 360) - 180;
@@ -812,7 +833,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       const end = S.routeCoords[S.routeCoords.length-1];
       const fromPos = {lat:end[0], lng:end[1]};
       const profile = S.vibeProfile || fallbackVibeProfile();
-      const result = await nearbyRoadCandidates(fromPos.lat, fromPos.lng, profile.roadBias, profile.avoidBias);
+      const result = await fetchCandidatesWidened(fromPos.lat, fromPos.lng, profile);
       S.lastAvgDensity = result.avgDensity;
       S.lastUrbanNeg = result.urbanNegTotal;
       const picks = pickTopChoices(result.candidates, profile, 2);
@@ -841,41 +862,59 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     ['A','B'].forEach((k,i)=>{
       const btn = document.getElementById('choice'+k);
       const p = previews[i];
-      btn.querySelector('.ct-turn').textContent = turnLabel(p.candidate);
+      const label = turnLabel(p.candidate);
+      btn.querySelector('.ct-icon').innerHTML = TURN_ICONS[label] || TURN_ICONS['Straight'];
+      btn.querySelector('.ct-turn').textContent = label;
       btn.querySelector('.ct-desc').textContent = describeChoice(p.candidate);
       btn.classList.remove('chosen');
       btn.onclick = ()=>{
         btn.classList.add('chosen');
-        clearTimeout(S.choiceTimerId);
-        setTimeout(()=> commitChoice(p, false), 140);
+        recordChoice(p);
       };
     });
 
-    // draw both as dim preview lines branching from the upcoming intersection
+    // draw both as dim preview lines branching from the upcoming intersection — these are
+    // just previews of what's ahead; nothing here changes position or state yet
     clearChoicePreviewLines();
-    previews.forEach((p,i)=>{
+    previews.forEach(p=>{
       const line = L.polyline(p.coords, {color:(profile&&profile.color)||'#4fd8c9', weight:3, opacity:.35, dashArray:'4 6'}).addTo(map);
-      S.choicePreviewLines.push(line);
+      S.choicePreviewLines.push({line, preview:p});
     });
 
     clearTimeout(S.choiceTimerId);
     bar.classList.add('run');
     bar.style.animationDuration = '6s';
     S.choiceTimerId = setTimeout(()=>{
-      if(S.pendingChoices) commitChoice(previews[0], true); // best-scored option, auto-continue
+      if(!S.userPickedChoice) recordChoice(previews[0]); // no tap in time — quietly settle on the better option
     }, 6000);
   }
 
+  // Recording a pick never moves anything or redraws the live route — it only decides which
+  // of the two already-computed previews will be used once the driver actually arrives at
+  // the intersection. Committing early (before you're really there) is what caused the
+  // "teleport" bug — the route would jump ahead of your actual position.
+  function recordChoice(preview){
+    S.userPickedChoice = preview;
+    clearTimeout(S.choiceTimerId);
+    document.getElementById('choicePanel').classList.remove('show');
+    // drop the unchosen preview line, keep the chosen one visible as a preview until arrival
+    S.choicePreviewLines = S.choicePreviewLines.filter(entry=>{
+      if(entry.preview !== preview){ map.removeLayer(entry.line); return false; }
+      return true;
+    });
+  }
+
   function clearChoicePreviewLines(){
-    S.choicePreviewLines.forEach(l=> map.removeLayer(l));
+    S.choicePreviewLines.forEach(entry=> map.removeLayer(entry.line));
     S.choicePreviewLines = [];
   }
 
-  function commitChoice(preview, wasAuto){
+  function commitChoice(preview){
     clearTimeout(S.choiceTimerId);
     document.getElementById('choicePanel').classList.remove('show');
     clearChoicePreviewLines();
     S.pendingChoices = null;
+    S.userPickedChoice = null;
 
     const profile = S.vibeProfile || fallbackVibeProfile();
     drawRoute(preview.coords, profile.color||'#4fd8c9');
@@ -884,7 +923,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     if(S.recentWayIds.length > 5) S.recentWayIds.shift();
     S.lastWayId = preview.candidate.wayId;
     S.legCount++;
-    setInstruction('Follow the glowing road', wasAuto ? `Leg ${S.legCount} · continuing on` : `Leg ${S.legCount} · your pick`, 'road');
+    setInstruction('Follow the glowing road', `Leg ${S.legCount} · real turn ahead`, 'road');
   }
 
   async function generateEndlessLeg(target){
@@ -919,7 +958,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     const overpassOnCooldown = S.legCount < S.overpassCooldownUntilLeg;
     if(!overpassOnCooldown){
       try{
-        const result = await nearbyRoadCandidates(S.pos.lat, S.pos.lng, profile.roadBias, profile.avoidBias);
+        const result = await fetchCandidatesWidened(S.pos.lat, S.pos.lng, profile);
         candidates = result.candidates;
         S.lastAvgDensity = result.avgDensity;
         S.lastUrbanNeg = result.urbanNegTotal;
@@ -938,12 +977,15 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     const next = pickNextCandidate(candidates, profile, target);
     try{
       if(!next){
-        // No real intersection found (rural gap, or Overpass unavailable/cooling down) —
-        // always fall back to a short projected hop so the drive keeps moving.
+        // No real intersection found even after widening the search (rural gap, or Overpass
+        // unavailable/cooling down) — fall back to a short projected hop. Deliberately kept
+        // short (not profile.legMinMi/legMaxMi, which can be several miles) because this hop
+        // goes through raw OSRM with zero road-type control — a long unconstrained fallback
+        // is exactly what was routing people onto arterial roads.
         const bearing = target
           ? (toDeg(Math.atan2(toRad(target.lng-S.pos.lng)*Math.cos(toRad(S.pos.lat)), toRad(target.lat-S.pos.lat)))+360)%360 + (Math.random()*50-25)
           : Math.random()*360;
-        const dist = profile.legMinMi + Math.random()*(profile.legMaxMi-profile.legMinMi);
+        const dist = 0.12 + Math.random()*0.16;
         const hop = projectPoint(S.pos.lat, S.pos.lng, bearing, dist);
         const {coords} = await osrmRoute(S.pos, hop);
         drawRoute(coords, profile.color||'#4fd8c9');
@@ -1006,7 +1048,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     }
     if(d < 0.03){
       if(S.pendingChoices){
-        commitChoice(S.pendingChoices[0], true); // reached the intersection before a pick was made — continue on the best option
+        commitChoice(S.userPickedChoice || S.pendingChoices[0]); // use whatever was picked (or the best option if undecided) — only now, at real arrival
       } else {
         generateEndlessLeg(); // prefetch wasn't ready in time — fall back to the normal on-demand path
       }
@@ -1170,7 +1212,10 @@ ${factsText}`;
     list.forEach(d=>{
       const chip = document.createElement('div');
       chip.className = 'saved-chip';
-      chip.innerHTML = `<span class="name"></span><span class="del"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`;
+      const modeIcon = d.mode==='endless'
+        ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>'
+        : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4a1 1 0 0 1 1-1h13.5a.5.5 0 0 1 .4.8l-3.9 5.2 3.9 5.2a.5.5 0 0 1-.4.8H5"/></svg>';
+      chip.innerHTML = `<span class="mode-icon">${modeIcon}</span><span class="name"></span><span class="del"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span>`;
       chip.querySelector('.name').textContent = d.name;
       chip.querySelector('.name').addEventListener('click', ()=>{
         S.mode = d.mode; S.vibe = d.vibe; S.storyOn = d.storyOn; S.voiceOn = d.voiceOn;
@@ -1323,6 +1368,22 @@ ${factsText}`;
     input.onkeydown = (e)=>{ if(e.key==='Enter') doSearch(); };
   }
 
+  function switchPanel(hideEl, showEl){
+    hideEl.style.transition = 'opacity .16s ease';
+    hideEl.style.opacity = '0';
+    setTimeout(()=>{
+      hideEl.classList.add('hide'); hideEl.classList.remove('show');
+      hideEl.style.transition = ''; hideEl.style.opacity = '';
+      showEl.classList.add('show'); showEl.classList.remove('hide');
+      showEl.style.opacity = '0';
+      requestAnimationFrame(()=>{
+        showEl.style.transition = 'opacity .28s ease';
+        showEl.style.opacity = '1';
+        setTimeout(()=>{ showEl.style.transition=''; showEl.style.opacity=''; }, 300);
+      });
+    }, 160);
+  }
+
   async function beginDrive(){
     if(!S.pos){
       toast('Waiting on a location fix — tap the map to drop a manual pin if GPS doesn\u2019t respond.', '');
@@ -1337,11 +1398,11 @@ ${factsText}`;
     S.legCount = 0;
     S.pendingChoices = null;
     S.choicesFetching = false;
+    S.userPickedChoice = null;
     S.lastWayId = null;
     S.recentWayIds = [];
     S.storyArc = '';
-    document.getElementById('setup').classList.add('hide');
-    document.getElementById('drive').classList.add('show');
+    switchPanel(document.getElementById('setup'), document.getElementById('drive'));
     document.getElementById('tripstats').classList.add('show');
     document.getElementById('btnEndpoint').style.display = S.mode==='endless' ? 'flex' : 'none';
     startTimer();
@@ -1398,14 +1459,14 @@ ${factsText}`;
     clearTimeout(S.choiceTimerId);
     clearChoicePreviewLines();
     S.pendingChoices = null;
+    S.userPickedChoice = null;
     document.getElementById('choicePanel').classList.remove('show');
     if(S.simulate && S.watchId===null) startLocation(); // resume real GPS for next time
     if(routeLineGlow) map.removeLayer(routeLineGlow);
     if(routeLineCore) map.removeLayer(routeLineCore);
     if(endpointMarker) map.removeLayer(endpointMarker);
     window.speechSynthesis && window.speechSynthesis.cancel();
-    document.getElementById('drive').classList.remove('show');
-    document.getElementById('setup').classList.remove('hide');
+    switchPanel(document.getElementById('drive'), document.getElementById('setup'));
     document.getElementById('tripstats').classList.remove('show');
     if(S.storyOn && S.storyArc){
       addStoryEntry('YOUR JOURNEY TONIGHT', S.storyArc);
