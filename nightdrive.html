@@ -349,6 +349,7 @@
     overpassFailStreak: 0,
     overpassCooldownUntilLeg: 0,
     lastAvgDensity: 0,
+    lastUrbanNeg: 0,
     recentDensities: [],
     escapePullBearing: null,
     escapePullUntilLeg: 0,
@@ -414,6 +415,7 @@
       avoidBias: ['motorway','trunk','primary'],
       curvy: /wind|curv|twist/.test(v),
       secluded: /secluded|quiet|empty|remote|backroad/.test(v),
+      natureBias: /tree|forest|woods|rural|countryside|nature|wooded/.test(v),
       loop: /loop|circle|back|return/.test(v),
       legMinMi: /short|quick|small/.test(v) ? 0.4 : (/long|far|endless|deep/.test(v) ? 1.2 : 0.6),
       legMaxMi: /short|quick|small/.test(v) ? 0.9 : (/long|far|endless|deep/.test(v) ? 2.2 : 1.4),
@@ -434,7 +436,8 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   "roadBias": [array of OSM highway tag values to prefer, from: residential, unclassified, tertiary, living_street, service, track],
   "avoidBias": [array of OSM highway tag values to avoid, from: motorway, trunk, primary, secondary],
   "curvy": boolean (true if they want winding/twisty roads),
-  "secluded": boolean (true if they want quiet/empty/remote roads),
+  "secluded": boolean (true if they want quiet/empty/remote roads, or generally to avoid busy/populated areas),
+  "natureBias": boolean (true if they mention trees, forest, woods, rural, countryside, or nature),
   "loop": boolean (true if they want to end up back near where they started),
   "legMinMi": number (0.3 to 3, shortest stretch between direction changes),
   "legMaxMi": number (0.5 to 4, longest stretch between direction changes),
@@ -541,19 +544,41 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   const HARD_AVOID_TAGS = ['motorway','motorway_link','trunk','trunk_link','primary','primary_link'];
   async function nearbyRoadCandidates(lat,lng, roadBias, avoidBias){
     const tagFilter = (roadBias&&roadBias.length ? roadBias : ['residential','unclassified','tertiary','living_street','service','track']).join('|');
-    const query = `[out:json][timeout:10];way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;`;
+    const query = `[out:json][timeout:12];way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;(way(around:850,${lat},${lng})["landuse"~"^(commercial|retail|industrial)$"];way(around:850,${lat},${lng})["amenity"="parking"];);out center 250;(way(around:850,${lat},${lng})["landuse"="forest"];way(around:850,${lat},${lng})["natural"~"^(wood|scrub)$"];);out center 250;`;
     const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-    const res = await fetchWithTimeout(url, 7000);
+    const res = await fetchWithTimeout(url, 8500);
     if(!res.ok) throw new Error('overpass unavailable');
     const data = await res.json();
 
-    const buildings = (data.elements||[]).map(el=>{
-      if(el.tags===undefined || el.tags.building===undefined) return null;
+    const centerOf = (el)=>{
       if(el.type==='node') return {lat:el.lat, lng:el.lon};
       if(el.center) return {lat:el.center.lat, lng:el.center.lon};
       return null;
+    };
+    const buildings = (data.elements||[]).map(el=> (el.tags && el.tags.building!==undefined) ? centerOf(el) : null).filter(Boolean);
+    // real urban-character signal, distinct from building count — a parking lot or big-box
+    // commercial strip has almost no "buildings" in it but is exactly the opposite of a backroad
+    const urbanNeg = (data.elements||[]).map(el=>{
+      if(!el.tags) return null;
+      if(/^(commercial|retail|industrial)$/.test(el.tags.landuse||'') || el.tags.amenity==='parking') return centerOf(el);
+      return null;
+    }).filter(Boolean);
+    // real tree/nature signal — lets "trees" in a prompt mean something concrete
+    const treeish = (data.elements||[]).map(el=>{
+      if(!el.tags) return null;
+      if(el.tags.landuse==='forest' || /^(wood|scrub)$/.test(el.tags.natural||'')) return centerOf(el);
+      return null;
     }).filter(Boolean);
     const avgDensity = buildings.length; // building count within 650m — the local built-up-ness reading
+
+    function coneCount(pts, bearing, maxMi, coneDeg){
+      return pts.filter(p=>{
+        const d = haversineMi({lat,lng},{lat:p.lat,lng:p.lng});
+        if(d > maxMi) return false;
+        const b = (toDeg(Math.atan2(toRad(p.lng-lng)*Math.cos(toRad(lat)), toRad(p.lat-lat)))+360)%360;
+        return Math.abs(((b-bearing+540)%360)-180) < coneDeg;
+      }).length;
+    }
 
     const candidates = [];
     const hopMi = 0.10 + Math.random()*0.16; // short, bounded hop — a stretch to the next real turn, not a road's far end
@@ -593,23 +618,20 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
           const bearing = (toDeg(Math.atan2(toRad(pt.lon-lng)*Math.cos(toRad(lat)), toRad(pt.lat-lat)))+360)%360;
           // real directional density: how many buildings sit in a cone toward this candidate —
           // this is what lets the app actually tell "toward the subdivision" from "toward open road"
-          const dirDensity = buildings.filter(b=>{
-            const bd = haversineMi({lat,lng},{lat:b.lat,lng:b.lng});
-            if(bd > 0.34) return false;
-            const bBearing = (toDeg(Math.atan2(toRad(b.lng-lng)*Math.cos(toRad(lat)), toRad(b.lat-lat)))+360)%360;
-            return Math.abs(((bBearing-bearing+540)%360)-180) < 40;
-          }).length;
+          const dirDensity = coneCount(buildings, bearing, 0.34, 40);
+          const urbanNegCount = coneCount(urbanNeg, bearing, 0.5, 45);
+          const treeCount = coneCount(treeish, bearing, 0.55, 45);
           const surface = way.tags.surface || '';
           candidates.push({
             lat:pt.lat, lng:pt.lon, bearing, tag, wayId: way.id, curvy: geom.length > 5,
-            dirDensity,
+            dirDensity, urbanNegCount, treeCount,
             unlit: way.tags.lit === 'no',
             unpaved: /unpaved|gravel|dirt|ground|grass/.test(surface)
           });
         }
       });
     });
-    return {candidates, avgDensity};
+    return {candidates, avgDensity, urbanNegTotal: urbanNeg.length};
   }
 
   // Overpass's public server is free but occasionally slow or rate-limited — never let a
@@ -639,6 +661,11 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       // real signal, not just tag names: steer toward directions with fewer nearby buildings —
       // this is what actually keeps the drive out of subdivisions and city grids
       score -= (c.dirDensity||0) * 1.1 * densityWeight;
+      // parking lots and commercial/retail/industrial land are a distinct, stronger urban
+      // signal — a parking lot has almost no "buildings" in it but is not remotely a backroad
+      score -= (c.urbanNegCount||0) * 3.2 * densityWeight;
+      // real tree cover — makes "trees" in a prompt an actual routing pull, not just flavor text
+      if(c.treeCount) score += c.treeCount * (profile && profile.natureBias ? 5 : 1.5);
       if(c.unlit) score += (profile && profile.secluded ? 3 : 1);
       if(c.unpaved && profile && profile.secluded) score += 2;
       // busier tag types get pushed down hard — tertiary/secondary are only used when
@@ -660,7 +687,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       }
       if(S.escapePullBearing!==null && S.legCount <= S.escapePullUntilLeg){
         const diff = Math.abs(((c.bearing-S.escapePullBearing+540)%360)-180);
-        score += (180-diff)/6; // actively push out of a dense area we've been stuck in
+        score += (180-diff)/3.5; // actively push out of a dense/urban area we've been stuck in
       }
       if(target){
         // reward progress toward the destination, but only mildly — this is meant to
@@ -674,24 +701,27 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     return scored[0].c;
   }
 
-  // If recent legs have all sat in dense, built-up areas, do one wider scan (bucketed into
-  // compass sectors) to find the sparsest nearby direction, and pull hard toward it for a
-  // few legs — this is the actual mechanism for climbing out of a subdivision or city grid
-  // once the local density steering alone hasn't been enough.
-  const DENSITY_STUCK_THRESHOLD = 45;
+  // If recent legs have all sat in dense, built-up, or commercial/parking-heavy areas, do
+  // one wider scan (bucketed into compass sectors) to find the sparsest nearby direction,
+  // and pull hard toward it for several legs — this is the actual mechanism for climbing
+  // out of a subdivision or city grid once local steering alone hasn't been enough.
+  const DENSITY_STUCK_THRESHOLD = 40;
+  const URBAN_STUCK_THRESHOLD = 3;
   async function maybeTriggerEscape(){
-    S.recentDensities.push(S.lastAvgDensity);
-    if(S.recentDensities.length > 3) S.recentDensities.shift();
-    if(S.recentDensities.length < 3) return;
-    const stuck = S.recentDensities.every(d=>d >= DENSITY_STUCK_THRESHOLD);
+    S.recentDensities.push({d:S.lastAvgDensity, u:S.lastUrbanNeg||0});
+    if(S.recentDensities.length > 2) S.recentDensities.shift();
+    if(S.recentDensities.length < 2) return;
+    const stuck = S.recentDensities.every(x=> x.d >= DENSITY_STUCK_THRESHOLD || x.u >= URBAN_STUCK_THRESHOLD);
     if(!stuck) return;
     try{
-      const query = `[out:json][timeout:9];(node(around:1600,${S.pos.lat},${S.pos.lng})["building"];way(around:1600,${S.pos.lat},${S.pos.lng})["building"];);out center 700;`;
+      const query = `[out:json][timeout:9];(node(around:1700,${S.pos.lat},${S.pos.lng})["building"];way(around:1700,${S.pos.lat},${S.pos.lng})["building"];way(around:1700,${S.pos.lat},${S.pos.lng})["landuse"~"^(commercial|retail|industrial)$"];way(around:1700,${S.pos.lat},${S.pos.lng})["amenity"="parking"];);out center 700;`;
       const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-      const res = await fetchWithTimeout(url, 7000);
+      const res = await fetchWithTimeout(url, 7500);
       const data = await res.json();
       const pts = (data.elements||[]).map(el=>{
-        if(!el.tags || el.tags.building===undefined) return null;
+        if(!el.tags) return null;
+        const isSignal = el.tags.building!==undefined || /^(commercial|retail|industrial)$/.test(el.tags.landuse||'') || el.tags.amenity==='parking';
+        if(!isSignal) return null;
         if(el.type==='node') return {lat:el.lat, lng:el.lon};
         if(el.center) return {lat:el.center.lat, lng:el.center.lon};
         return null;
@@ -704,7 +734,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       let minIdx = 0;
       for(let i=1;i<8;i++) if(sectors[i] < sectors[minIdx]) minIdx = i;
       S.escapePullBearing = minIdx*45 + 22.5;
-      S.escapePullUntilLeg = S.legCount + 5;
+      S.escapePullUntilLeg = S.legCount + 7;
       S.recentDensities = [];
       toast('Steering toward open road...', 'info');
     }catch(e){ /* non-critical — local density steering still applies */ }
@@ -745,6 +775,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
         const result = await nearbyRoadCandidates(S.pos.lat, S.pos.lng, profile.roadBias, profile.avoidBias);
         candidates = result.candidates;
         S.lastAvgDensity = result.avgDensity;
+        S.lastUrbanNeg = result.urbanNegTotal;
         S.overpassFailStreak = 0;
         if(!target) await maybeTriggerEscape(); // only wander-steer in endless mode, not while headed to a chosen point
       }catch(e){
@@ -771,7 +802,15 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
         drawRoute(coords, profile.color||'#4fd8c9');
         S.lastBearing = bearing;
       } else {
-        const {coords} = await osrmRoute(S.pos, {lat:next.lat, lng:next.lng});
+        // If the best available pick is basically a reversal (a real dead end with nothing
+        // else to cross onto), push the target further out along the same bearing so it
+        // reads as a deliberate turn-around rather than a jittery short stutter-reverse.
+        let hopTarget = {lat:next.lat, lng:next.lng};
+        const reversalDiff = S.lastBearing!==null ? Math.abs(((next.bearing-S.lastBearing+540)%360)-180) : 0;
+        if(reversalDiff > 150){
+          hopTarget = projectPoint(next.lat, next.lng, next.bearing, 0.15 + Math.random()*0.15);
+        }
+        const {coords} = await osrmRoute(S.pos, hopTarget);
         drawRoute(coords, profile.color||(target?'#ffb454':'#4fd8c9'));
         S.lastBearing = next.bearing;
         S.recentWayIds.push(S.lastWayId);
