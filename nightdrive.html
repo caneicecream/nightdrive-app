@@ -37,8 +37,8 @@
   .leaflet-control-attribution{background:rgba(6,8,16,.7) !important; color:#4d5468 !important; font-size:8.5px !important;}
   .leaflet-control-attribution a{color:#6a7285 !important;}
   .leaflet-control-zoom{display:none;}
-  @keyframes flowDash{ to{ stroke-dashoffset:-40; } }
-  .route-flow{ stroke-dasharray:1 14; animation:flowDash 1s linear infinite; }
+  @keyframes flowDash{ to{ stroke-dashoffset:-48; } }
+  .route-flow{ stroke-dasharray:16 9; animation:flowDash 1.3s linear infinite; }
 
   /* filmic grain — cheap, tasteful texture that sells "premium night footage" */
   #grain{position:absolute; inset:0; pointer-events:none; z-index:415; opacity:.05; mix-blend-mode:overlay;
@@ -357,7 +357,9 @@
     simDistMi: 0,
     simIntervalId: null,
     simMultiplier: 1,
-    legGenerating: false
+    legGenerating: false,
+    lastWayId: null,
+    recentWayIds: []
   };
 
   /* ---------------- map ---------------- */
@@ -536,6 +538,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
   // Queries real OpenStreetMap road AND building data near a point via Overpass. Building
   // density is the real signal for "is this actually a backroad or just a residential-tagged
   // street inside a subdivision" — tag names alone can't tell the difference, density can.
+  const HARD_AVOID_TAGS = ['motorway','motorway_link','trunk','trunk_link','primary','primary_link'];
   async function nearbyRoadCandidates(lat,lng, roadBias, avoidBias){
     const tagFilter = (roadBias&&roadBias.length ? roadBias : ['residential','unclassified','tertiary','living_street','service','track']).join('|');
     const query = `[out:json][timeout:10];way(around:220,${lat},${lng})["highway"~"^(${tagFilter})$"];out geom;(node(around:650,${lat},${lng})["building"];way(around:650,${lat},${lng})["building"];);out center 500;`;
@@ -557,6 +560,9 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     (data.elements||[]).forEach(way=>{
       if(!way.geometry || way.geometry.length<2 || !way.tags || !way.tags.highway) return;
       const tag = way.tags.highway;
+      // primary/trunk/motorway are never acceptable for this app regardless of what the
+      // AI-parsed profile happened to say — hard rule, not a preference.
+      if(HARD_AVOID_TAGS.includes(tag)) return;
       if(avoidBias && avoidBias.includes(tag)) return;
       const geom = way.geometry;
 
@@ -595,7 +601,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
           }).length;
           const surface = way.tags.surface || '';
           candidates.push({
-            lat:pt.lat, lng:pt.lon, bearing, tag, curvy: geom.length > 5,
+            lat:pt.lat, lng:pt.lon, bearing, tag, wayId: way.id, curvy: geom.length > 5,
             dirDensity,
             unlit: way.tags.lit === 'no',
             unpaved: /unpaved|gravel|dirt|ground|grass/.test(surface)
@@ -617,6 +623,7 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
     } finally { clearTimeout(t); }
   }
 
+  const TAG_TIER = { living_street:0, track:0, service:1, residential:1, unclassified:2, tertiary:5, secondary:9 };
   function pickNextCandidate(candidates, profile, target){
     if(!candidates.length) return null;
     const curDistToTarget = target ? haversineMi(S.pos, target) : null;
@@ -634,6 +641,14 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
       score -= (c.dirDensity||0) * 1.1 * densityWeight;
       if(c.unlit) score += (profile && profile.secluded ? 3 : 1);
       if(c.unpaved && profile && profile.secluded) score += 2;
+      // busier tag types get pushed down hard — tertiary/secondary are only used when
+      // nothing quieter connects, never preferred
+      score -= (TAG_TIER[c.tag]!==undefined ? TAG_TIER[c.tag] : 3) * 2.2;
+      // actively prefer actually crossing onto a different road over continuing down the
+      // one we're already on — this is what stops long single-road stretches and re-entering
+      // the same small dead-end pocket we just backed out of
+      if(c.wayId === S.lastWayId) score -= 10;
+      if(S.recentWayIds && S.recentWayIds.includes(c.wayId)) score -= 14;
       if(profile && profile.loop && S.startLatLng && S.legCount>0 && S.legCount % 5 === 0){
         const backBearing = (toDeg(Math.atan2(toRad(S.startLatLng.lng-c.lng)*Math.cos(toRad(c.lat)), toRad(S.startLatLng.lat-c.lat)))+360)%360;
         const diff = Math.abs(((c.bearing-backBearing+540)%360)-180);
@@ -759,6 +774,9 @@ Translate this into JSON ONLY (no prose, no markdown fences) with this exact sha
         const {coords} = await osrmRoute(S.pos, {lat:next.lat, lng:next.lng});
         drawRoute(coords, profile.color||(target?'#ffb454':'#4fd8c9'));
         S.lastBearing = next.bearing;
+        S.recentWayIds.push(S.lastWayId);
+        if(S.recentWayIds.length > 5) S.recentWayIds.shift();
+        S.lastWayId = next.wayId;
       }
       S.legCount++;
       setInstruction('Follow the glowing road', target ? `Leg ${S.legCount} · winding toward your endpoint` : `Leg ${S.legCount} · real turn ahead`, 'road');
